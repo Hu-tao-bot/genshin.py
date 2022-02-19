@@ -398,6 +398,8 @@ class GenshinClient:
         if cache:
             data = await self._check_cache(cache, cache_check, lang=lang)
             if data:
+                if self.auto_close_sesion:
+                    await self.close()
                 return data
 
         if not self.cookies:
@@ -1506,6 +1508,9 @@ class ChineseClient(GenshinClient):
         if cache:
             data = await self._check_cache(cache, cache_check)
             if data:
+                if self.auto_close_sesion:
+                    await self.close()
+
                 return data
 
         if not self.cookies:
