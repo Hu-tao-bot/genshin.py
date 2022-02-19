@@ -71,6 +71,7 @@ class GenshinClient:
         *,
         lang: str = "en-us",
         debug: bool = False,
+        auto_close_sesion: bool = False
     ) -> None:
         """Create a new GenshinClient instance
 
@@ -85,6 +86,8 @@ class GenshinClient:
         self.authkey = authkey
         self.lang = lang
         self.debug = debug
+
+        self.auto_close_sesion = auto_close_sesion
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} lang={self.lang!r} hoyolab_uid={self.hoyolab_uid} debug={self.debug}>"
@@ -344,6 +347,9 @@ class GenshinClient:
             data = await r.json()
 
         if data["retcode"] == 0:
+            if self.auto_close_sesion:
+                await self.close()
+
             return data["data"]
 
         errors.raise_for_retcode(data)
@@ -1479,8 +1485,9 @@ class ChineseClient(GenshinClient):
         *,
         lang: str = "zh-tw",
         debug: bool = False,
+        auto_close_sesion: bool = True,
     ) -> None:
-        super().__init__(cookies=cookies, authkey=authkey, lang=lang, debug=debug)
+        super().__init__(cookies=cookies, authkey=authkey, lang=lang, debug=debug, auto_close_sesion=auto_close_sesion)
 
     async def request_hoyolab(
         self,
@@ -1723,6 +1730,9 @@ class MultiCookieClient(GenshinClient):
                 data = await r.json()
 
             if data["retcode"] == 0:
+                if self.auto_close_sesion:
+                    await self.close()
+
                 return data["data"]
 
             try:
