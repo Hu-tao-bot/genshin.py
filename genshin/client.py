@@ -93,6 +93,8 @@ class GenshinClient:
         """
 
         self.cookies = cookies or {}
+        self.hoyolab_uid = self.get_hoyolab_uid()
+        
 
         self.authkey = authkey
         self.lang = lang
@@ -153,6 +155,11 @@ class GenshinClient:
         logging.basicConfig()
         level = logging.DEBUG if debug else logging.NOTSET
         logging.getLogger("genshin").setLevel(level)
+
+    def get_hoyolab_uid(self):
+        for key in self.cookies.keys():
+            if key in ("ltuid", "account_id"):
+                return int(self.cookies[key])
 
     def set_authkey(self, authkey: str = None) -> None:
         """Sets an authkey for wish & transaction logs
@@ -284,11 +291,14 @@ class GenshinClient:
                 session.cookie_jar.update_cookies(self.cookies)
 
             async with session.request(method, url, headers=headers, **kwargs) as response:
-                # Auto close session on exception
+                # Get JSON response
+                response.raise_for_status()
+                _json = await response.json()
+
+                # Close session
                 await session.close()
 
-                response.raise_for_status()
-                return await response.json()
+                return _json
 
     @handle_ratelimits()
     async def request(
