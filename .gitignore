@@ -6,3 +6,5 @@ cookies.json
 docs/pdoc
 htmlcov/
 test.py
+genshin.egg-info/*
+build/*
