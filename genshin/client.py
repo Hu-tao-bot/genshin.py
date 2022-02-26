@@ -70,8 +70,7 @@ class GenshinClient:
         authkey: str = None,
         *,
         lang: str = "en-us",
-        debug: bool = False,
-        auto_close_sesion: bool = False
+        debug: bool = False
     ) -> None:
         """Create a new GenshinClient instance
 
@@ -80,47 +79,17 @@ class GenshinClient:
         :param lang: The default language
         :param debug: Whether debug logs should be shown in stdout
         """
-        if cookies:
-            self.cookies = cookies
+
+        self.cookies = cookies or {}
 
         self.authkey = authkey
         self.lang = lang
         self.debug = debug
 
-        self.auto_close_sesion = auto_close_sesion
-
     def __repr__(self) -> str:
         return f"<{type(self).__name__} lang={self.lang!r} hoyolab_uid={self.hoyolab_uid} debug={self.debug}>"
 
     # PROPERTIES:
-
-    @property
-    def session(self) -> aiohttp.ClientSession:
-        """The current client session, created when needed"""
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-
-        return self._session
-
-    @property
-    def cookies(self) -> Mapping[str, str]:
-        """The cookie jar belonging to the current session"""
-        return {cookie.key: cookie.value for cookie in self.session.cookie_jar}
-
-    @cookies.setter
-    def cookies(self, cookies: Mapping[str, Any]) -> None:
-        cks = {str(key): value for key, value in cookies.items()}
-        self.session.cookie_jar.clear()
-        self.session.cookie_jar.update_cookies(cks)
-
-    @property
-    def hoyolab_uid(self) -> Optional[int]:
-        """The logged-in user's hoyolab uid"""
-        for cookie in self.session.cookie_jar:
-            if cookie.key in ("ltuid", "account_id"):
-                return int(cookie.value)
-
-        return None
 
     @property
     def uid(self) -> Optional[int]:
@@ -172,32 +141,6 @@ class GenshinClient:
         logging.basicConfig()
         level = logging.DEBUG if debug else logging.NOTSET
         logging.getLogger("genshin").setLevel(level)
-
-    def set_cookies(
-        self, cookies: Union[Mapping[str, Any], str] = None, **kwargs: Any
-    ) -> Mapping[str, str]:
-        """Helper cookie setter that accepts cookie headers
-
-        :returns: The new cookies
-        """
-        if not bool(cookies) ^ bool(kwargs):
-            raise TypeError("Cannot use both positional and keyword arguments at once")
-
-        cookies = cookies or kwargs
-        cookies = {morsel.key: morsel.value for morsel in SimpleCookie(cookies).values()}
-        self.cookies = cookies
-        return self.cookies
-
-    def set_browser_cookies(self, browser: str = None) -> Mapping[str, str]:
-        """Extract cookies from your browser and set them as client cookies
-
-        Avalible browsers: chrome, chromium, opera, edge, firefox
-
-        :param browser: The browser to extract the cookies from
-        :returns: The extracted cookies
-        """
-        self.cookies = get_browser_cookies(browser)
-        return self.cookies
 
     def set_authkey(self, authkey: str = None) -> None:
         """Sets an authkey for wish & transaction logs
@@ -310,20 +253,30 @@ class GenshinClient:
 
         self.logger.debug(string)
 
-    # ASYNCIO HANDLERS:
-
-    async def close(self) -> None:
-        """Close the underlying aiohttp session"""
-        if not self.session.closed:
-            await self.session.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc_info):
-        await self.close()
-
     # RAW HTTP REQUESTS:
+
+    @handle_ratelimits()
+    async def _request(
+        self,
+        url: Union[str, URL],
+        method: str = "GET",
+        *,
+        headers: Dict[str, Any] = None,
+        set_cookie: bool = True,
+        **kwargs: Any
+    ):
+        async with aiohttp.ClientSession() as session:
+            if set_cookie:
+                # Set cookies before request
+                session.cookie_jar.clear()
+                session.cookie_jar.update_cookies(self.cookies)
+
+            async with session.request(method, url, headers=headers, **kwargs) as response:
+                # Auto close session on exception
+                await session.close()
+
+                response.raise_for_status()
+                return await response.json()
 
     @handle_ratelimits()
     async def request(
@@ -342,14 +295,9 @@ class GenshinClient:
 
         await self._request_hook(method, url, headers=headers, **kwargs)
 
-        async with self.session.request(method, url, headers=headers, **kwargs) as r:
-            r.raise_for_status()
-            data = await r.json()
+        data = await self._request(url, method, headers=headers, **kwargs)
 
         if data["retcode"] == 0:
-            if self.auto_close_sesion:
-                await self.close()
-
             return data["data"]
 
         errors.raise_for_retcode(data)
@@ -372,9 +320,7 @@ class GenshinClient:
         headers = headers or {}
         headers["user-agent"] = self.USER_AGENT
 
-        async with self.session.get(url, headers=headers, **kwargs) as r:
-            r.raise_for_status()
-            data = await r.json()
+        data = await self._request(url, "GET", headers=headers, **kwargs)
 
         if cache:
             save_to_static_cache(str(url), data)
@@ -398,8 +344,6 @@ class GenshinClient:
         if cache:
             data = await self._check_cache(cache, cache_check, lang=lang)
             if data:
-                if self.auto_close_sesion:
-                    await self.close()
                 return data
 
         if not self.cookies:
@@ -609,8 +553,8 @@ class GenshinClient:
     async def login_with_ticket(self, login_ticket: str = "") -> None:
         """Complete cookies using a login ticket"""
         url = "https://webapi-os.account.hoyoverse.com/Api/cookie_accountinfo_by_loginticket"
-        async with self.session.get(url, params=dict(login_ticket=login_ticket)) as r:
-            r.raise_for_status()
+
+        await self._request(url, params=dict(login_ticket=login_ticket), set_cookie=False)
 
     # HOYOLAB:
 
@@ -689,17 +633,7 @@ class GenshinClient:
             )
             return
 
-        accounts = [a for a in await self.genshin_accounts() if a.level >= 10]
-
-        for i, account in enumerate(accounts):
-            # there's a ratelimit of 1 request every 5 seconds
-            if i:
-                await asyncio.sleep(5)
-
-            await self.redeem_code(code, account.uid, lang=lang)
-
     # GAME RECORD:
-
     async def _fetch_raw_user(self, uid: int, lang: str = None) -> Dict[str, Any]:
         """Low-level http method for fetching the game record index"""
         server = recognize_server(uid)
@@ -1439,6 +1373,8 @@ class GenshinClient:
         coros = (single(url, key) for key, url in GenshinModel._mi18n_urls.items())
         await asyncio.gather(*coros)
 
+        
+
         return GenshinModel._mi18n
 
     async def init(self, lang: str = None):
@@ -1459,10 +1395,10 @@ class GenshinClient:
     async def fetch_banner_ids(self) -> List[str]:
         """Fetch banner ids from a user-mantained repo"""
         url = "https://raw.githubusercontent.com/thesadru/genshindata/master/banner_ids.txt"
-        async with self.session.get(url) as r:
-            data = await r.text()
+        
+        data = await self._request(url, set_cookie=False)
+            
         return data.splitlines()
-
 
 class ChineseClient(GenshinClient):
     """A Genshin Client for chinese endpoints"""
@@ -1487,9 +1423,8 @@ class ChineseClient(GenshinClient):
         *,
         lang: str = "zh-tw",
         debug: bool = False,
-        auto_close_sesion: bool = True,
     ) -> None:
-        super().__init__(cookies=cookies, authkey=authkey, lang=lang, debug=debug, auto_close_sesion=auto_close_sesion)
+        super().__init__(cookies=cookies, authkey=authkey, lang=lang, debug=debug)
 
     async def request_hoyolab(
         self,
@@ -1508,9 +1443,6 @@ class ChineseClient(GenshinClient):
         if cache:
             data = await self._check_cache(cache, cache_check)
             if data:
-                if self.auto_close_sesion:
-                    await self.close()
-
                 return data
 
         if not self.cookies:
@@ -1735,9 +1667,6 @@ class MultiCookieClient(GenshinClient):
                 data = await r.json()
 
             if data["retcode"] == 0:
-                if self.auto_close_sesion:
-                    await self.close()
-
                 return data["data"]
 
             try:
