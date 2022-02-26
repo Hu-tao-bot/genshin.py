@@ -9,6 +9,24 @@ Source Code: https://github.com/thesadru/genshin.py
 
 ---
 
+## Note
+---
+
+This is not my project. It is a project from [genshin.py](https://github.com/thesadru/genshin.py) I brought the code to edit for my project.
+
+I have fixed with "Unclosed client session" of asyncio. Because In everytime user have use slash command, it will create a new session. But I can't close the session after I got except. ![Error1](./images/error1.png)
+
+So I have to fix this.
+![Fix1](./images/fix1.png)
+
+In request function
+![Fix2](./images/fix2.png)
+
+> Sorry for my bad english. 😅
+
+---
+
+
 The primary focus of genshin.py is convenience. The entire project is fully type-hinted and abstracts a large amount of the api to be easier to use.
 
 Key features:
