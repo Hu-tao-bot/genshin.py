@@ -164,6 +164,7 @@ _errors: Dict[int, Union[_TGE, str, Tuple[_TGE, Optional[str]]]] = {
     -2004: RedemptionInvalid,
     -2016: (RedemptionCooldown, "Redemption in cooldown."),
     -2017: (RedemptionClaimed, "Redeption code has been claimed already."),
+    -2018: (RedemptionClaimed, "Redeption code has been claimed already."),
     -2021: (
         RedemptionException,
         "Cannot claim codes for accounts with adventure rank lower than 10.",
