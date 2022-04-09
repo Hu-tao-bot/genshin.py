@@ -77,6 +77,8 @@ _character_names = {
     10000062: ("Aloy", "Aloy", "Cryo", 105),
     10000063: ("Shenhe", "Shenhe", "Cryo", 5),
     10000064: ("Yunjin", "Yun Jin", "Geo", 4),
+    10000065: None,
+    10000066: ("Ayato", "Ayato", "Hydro", 5),
 }
 
 CHARACTER_NAMES: Dict[int, DBChar] = {
